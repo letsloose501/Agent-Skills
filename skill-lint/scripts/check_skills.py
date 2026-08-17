@@ -26,6 +26,15 @@
      Кандидат на pruning: либо забыли подключить, либо он уже не нужен.
   5. Раздутый SKILL.md — грузится при каждой активации целиком (см. BUDGET).
   6. Сломанный frontmatter — без name/description скилл не активируется.
+  7. Нарушения спецификации Agent Skills во frontmatter: длина `description`
+     (максимум 1024), формат и длина `name`, несовпадение `name` с именем папки,
+     длина `compatibility` (максимум 500). Claude Code эти лимиты сегодня не
+     навязывает, поэтому поломка тихая: локально работает, а при публикации
+     скилла или прогоне `skills-ref validate` — отлетает. Поэтому ⚠️, не ⛔.
+  8. Битый указатель на раздел — `references/foo.md` → «Раздел», которого в файле
+     уже нет. Файл на месте, поэтому проверка (1) молчит, а агент открывает
+     справочник и не находит того, за чем пришёл. Рвётся при переименовании
+     заголовка — то есть при обычной правке, без всякого переезда файлов.
 
 Флаги:
   --quiet   молчать, когда всё чисто; печатать только проблемы
@@ -79,6 +88,43 @@ WILDCARD_RE = re.compile(r"((?:" + "|".join(SUBDIRS) + r")/[\w./-]*?)/?<[^>]+>\.
 # markdown-ссылка на соседний файл внутри той же папки: [текст](сосед.md)
 SIBLING_RE = re.compile(r"\]\((?!https?:|#)([\w.-]+\.\w+)\)")
 
+# Указатель на раздел справочника: `references/foo.md` → «Раздел» / «…», разделы «A» и «B».
+# Между файлом и указателем не пускаем кавычки-ёлочки: без этого окно перепрыгивает
+# через посторонний текст и цепляет цитату, не имеющую отношения к разделу.
+SECPTR_RE = re.compile(
+    r"((?:" + "|".join(SUBDIRS) + r")/[\w./-]+\.md)`?"      # файл
+    r"[^\n«»]{0,40}?"                                       # немного текста без кавычек
+    r"(?:→|->|раздел[аыов]*)"                               # явное указание на раздел
+    r"([^\n]{0,140})"                                       # хвост строки: там сами «разделы»
+)
+SECTION_RE = re.compile(r"«([^»]{2,80})»")
+
+# Спецификация Agent Skills: agentskills.io/specification.md
+NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+DESC_MAX = 1024
+NAME_MAX = 64
+COMPAT_MAX = 500
+
+
+def fm_field(fm, key):
+    """Значение ключа frontmatter, включая блочные скаляры (`>-`, `|`), схлопнутое в строку."""
+    m = re.search(
+        rf"^{key}:[ \t]*(>[-+]?|\|[-+]?)?[ \t]*\n?(.*?)(?=^[A-Za-z_][\w-]*:|\Z)",
+        fm, re.M | re.S)
+    return " ".join(m.group(2).split()) if m else None
+
+
+def headings(path):
+    """Множество заголовков файла, нормализованных для сравнения."""
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return set()
+    # MULTILINE обязателен: иначе ^ и $ ловят только начало и конец всего текста,
+    # заголовки не собираются вовсе и проверка молча простаивает, отчитываясь «чисто».
+    return {" ".join(h.split()).casefold()
+            for h in re.findall(r"^#{1,6}\s+(.+?)\s*#*\s*$", text, re.M)}
+
 
 def collect(text, mentioned, cross, wildcard_dirs, cross_full=None):
     """Разложить ссылки из текста на локальные, кросс-скилловые и шаблонные."""
@@ -89,6 +135,17 @@ def collect(text, mentioned, cross, wildcard_dirs, cross_full=None):
     for d in WILDCARD_RE.findall(text):
         wildcard_dirs.add(d.rstrip("/"))
     mentioned |= set(LINK_RE.findall(text))
+
+
+def collect_pointers(text, source, pointers):
+    """Указатели «файл + раздел»: (откуда, какой файл, какой раздел).
+
+    Хвост после указателя разбираем целиком — так ловится и форма
+    «разделы «A» и «B»», где разделов в одной строке несколько.
+    """
+    for target, tail in SECPTR_RE.findall(text):
+        for section in SECTION_RE.findall(tail):
+            pointers.append((source, target, section))
 
 
 def frontmatter(text):
@@ -110,7 +167,7 @@ def check(skill):
         text = f.read()
     size = len(text.encode("utf-8"))
 
-    # 1. frontmatter
+    # 1. frontmatter — наличие полей и соответствие спецификации
     fm = frontmatter(text)
     if fm is None:
         errors.append("нет frontmatter (--- в начале файла)")
@@ -119,9 +176,40 @@ def check(skill):
             if key not in fm:
                 errors.append(f"во frontmatter нет `{key}`")
 
+        # Лимиты спецификации — предупреждения, а не ошибки: Claude Code их сегодня
+        # не навязывает, скилл работает. Ломается при публикации и на `skills-ref validate`.
+        name = fm_field(fm, "name")
+        if name:
+            if name != skill:
+                errors.append(
+                    f"`name: {name}` не совпадает с именем папки `{skill}` — "
+                    f"по спецификации обязано совпадать; переименуй одно из двух")
+            if len(name) > NAME_MAX:
+                warnings.append(f"`name` {len(name)} симв. > {NAME_MAX} по спецификации")
+            if not NAME_RE.match(name):
+                warnings.append(
+                    f"`name: {name}` не по спецификации: только строчные латинские буквы, "
+                    f"цифры и одиночные дефисы, не с краю")
+
+        desc = fm_field(fm, "description")
+        if desc is not None:
+            if not desc:
+                errors.append("`description` пустой — скилл не будет срабатывать")
+            elif len(desc) > DESC_MAX:
+                warnings.append(
+                    f"`description` {len(desc)} симв. > {DESC_MAX} по спецификации "
+                    f"(лишних {len(desc) - DESC_MAX}) — Claude Code стерпит, "
+                    f"публикация и `skills-ref validate` — нет")
+
+        compat = fm_field(fm, "compatibility")
+        if compat and len(compat) > COMPAT_MAX:
+            warnings.append(f"`compatibility` {len(compat)} симв. > {COMPAT_MAX} по спецификации")
+
     # 2. собрать все ссылки на файлы скилла — из SKILL.md и из самих справочников
     mentioned, cross, wildcard_dirs, cross_full = set(), set(), set(), set()
+    pointers = []
     collect(text, mentioned, cross, wildcard_dirs, cross_full)
+    collect_pointers(text, "SKILL.md", pointers)
     for sub in SUBDIRS:
         d = os.path.join(root, sub)
         if not os.path.isdir(d):
@@ -133,6 +221,8 @@ def check(skill):
                     with open(full, encoding="utf-8", errors="replace") as f:
                         body = f.read()
                     collect(body, mentioned, cross, wildcard_dirs, cross_full)
+                    collect_pointers(
+                        body, os.path.relpath(full, root).replace("\\", "/"), pointers)
                     # соседские markdown-ссылки резолвятся от папки самого файла
                     for sib in SIBLING_RE.findall(body):
                         target = os.path.join(dirpath, sib)
@@ -160,6 +250,22 @@ def check(skill):
             warnings.append(f"путь без такой папки в скилле: {rel} — похоже на пример, не маршрут")
         else:
             errors.append(f"ссылка на несуществующий файл: {rel}")
+
+    # 3б. указатели на разделы: файл существует, а заголовка в нём уже нет
+    heads_cache = {}
+    for source, target, section in pointers:
+        full = os.path.join(root, target)
+        if not os.path.isfile(full):
+            continue                      # отсутствие файла ловит проверка 3, не дублируем
+        if full not in heads_cache:
+            heads_cache[full] = headings(full)
+        heads = heads_cache[full]
+        if not heads:
+            continue                      # заголовков нет вовсе — сверять не с чем
+        want = " ".join(section.split()).casefold()
+        if not any(want == h or want in h for h in heads):
+            warnings.append(
+                f"указатель на раздел, которого нет: {target} → «{section}» (из {source})")
 
     # 4. сироты
     on_disk = set()
