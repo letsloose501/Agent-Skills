@@ -1,24 +1,27 @@
 # Agent-Skills
 
-Скиллы и инструменты для [Claude Code](https://claude.com/claude-code), которыми я пользуюсь сам.
-Здесь лежат только те, что не завязаны на мои личные файлы и кому-то ещё пригодятся.
+Skills and tools for [Claude Code](https://claude.com/claude-code) that I use myself. Only the
+ones that are not tied to my personal files and that someone else can actually use.
 
-Каждая папка самодостаточна: скопируй её в `~/.claude/skills/` — и агент подхватит скилл.
-Скрипты внутри работают и просто из командной строки, без агента.
+Every folder is self-contained: copy it into `~/.claude/skills/` and the agent picks the skill
+up. The scripts inside also run straight from the command line, with no agent involved.
 
-| Скилл | Что делает |
+| Skill | What it does |
 |---|---|
-| [skill-lint](skill-lint/) | Проверяет целостность скиллов: битые ссылки на `references/`, ссылки на несуществующие скиллы, файлы-сироты, сломанный frontmatter, раздутый `SKILL.md`. Вешается на хук |
-| [kuper-prices](kuper-prices/) | Собирает цены на продукты в Купере по всем магазинам сразу — без браузера и без входа в аккаунт. Отсеивает мусор из выдачи, считает цену за кг/л/шт, отдаёт готовую отсортированную таблицу |
+| [skill-lint](skill-lint/) | Checks the integrity of skills: broken links into `references/`, links to skills that no longer exist, orphan files, broken frontmatter, Agent Skills spec violations, an oversized `SKILL.md`, and code left in the prose instead of `scripts/`. Wires onto a hook |
+| [kuper-prices](kuper-prices/) | Collects grocery prices from Kuper across every store at once - no browser, no account. Filters junk out of the results, computes the price per kg/l/unit, returns a sorted table ready to use |
 
-## Зачем это отдельными скриптами
+Documentation is in English; `kuper-prices` works over Russian retail, so its own examples are
+in Russian.
 
-Агенту незачем листать карточки товаров и считать цену за килограмм в уме — на этом он тратит
-время и ошибается. Пусть скрипт добудет и отсортирует данные, а агент делает то, что умеет лучше:
-собирает из них решение.
+## Why these are separate scripts
 
-Отсюда два правила, которым следуют скрипты в этом репозитории:
+An agent has no business paging through product cards or working out a price per kilogram in its
+head - it burns time there and makes mistakes. Let the script fetch and sort the data, and let
+the agent do what it is better at: building a decision out of it.
 
-* **падать громко.** Молчаливый пустой результат опаснее ошибки — он выглядит как достоверные
-  данные. Блокировка, сбой сети и «ничего не нашлось» должны различаться;
-* **не терять уже проверенное.** Неудачный запуск не затирает рабочую конфигурацию.
+Hence the two rules the scripts in this repository follow:
+
+* **fail loudly.** A silent empty result is more dangerous than an error - it looks like solid
+  data. A block, a network failure and "nothing found" have to be distinguishable;
+* **never lose what already worked.** A failed run does not overwrite a working configuration.

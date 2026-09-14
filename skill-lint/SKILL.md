@@ -1,57 +1,71 @@
 ---
 name: skill-lint
 description: >-
-  Проверка целостности скиллов Claude Code: битые ссылки на references/, указатели на
-  исчезнувшие разделы, ссылки на несуществующие скиллы, файлы-сироты, сломанный
-  frontmatter, нарушения спецификации Agent Skills (длина description, формат name,
-  несовпадение name с именем папки), раздутый SKILL.md. Срабатывай, когда пользователь
-  просит проверить скиллы, жалуется что скилл «не срабатывает» или «работает не
-  полностью», переименовал скилл, файл или заголовок внутри него, вынес часть SKILL.md
-  в справочник, поставил чужой скилл и хочет убедиться что он цел, или спрашивает почему
-  агент пропускает шаги инструкции. Также перед тем как публиковать или коммитить скилл.
+  Integrity check for Claude Code skills: broken links into references/, pointers to
+  sections that no longer exist, links to skills that were renamed away, orphan files,
+  broken frontmatter, Agent Skills spec violations (description length, name format,
+  name not matching the folder), an oversized SKILL.md, and long code blocks left in
+  the prose instead of scripts/. Trigger when the user asks to check or lint skills,
+  complains that a skill "does not fire" or "only half works", renames a skill, a file
+  inside one, or a heading inside a reference, moves part of a SKILL.md out into a
+  reference, installs somebody else's skill and wants to be sure it is intact, or asks
+  why the agent keeps skipping steps of an instruction. Also before publishing or
+  committing a skill.
 ---
 
-# Проверка скиллов
+# Checking skills
 
 ```
 python ~/.claude/skills/skill-lint/scripts/check_skills.py
-python ~/.claude/skills/skill-lint/scripts/check_skills.py my-skill other   # только эти
+python ~/.claude/skills/skill-lint/scripts/check_skills.py my-skill other   # these only
 ```
 
-Зависимостей нет. Папку скиллов скрипт находит сам; при необходимости — `--skills-dir <путь>`.
+No dependencies. The script finds the skills folder on its own; override it with
+`--skills-dir <path>` when needed.
 
-## Как читать результат
+## How to read the result
 
-⛔ **Ошибки чинить обязательно.** Битая ссылка на `references/…` не приводит к падению: агент
-молча пропускает шаг, и внешне это выглядит просто как работа похуже. Именно поэтому такие
-поломки живут месяцами. Сюда же — `name`, не совпадающий с именем папки: спецификация требует
-совпадения, и часть загрузчиков на этом спотыкается.
+⛔ **Errors have to be fixed.** A broken link into `references/…` does not crash anything:
+the agent silently skips the step, and from the outside it just looks like weaker work.
+That is exactly why such breakage survives for months. The same goes for a `name` that
+does not match the folder: the spec requires them to match, and some loaders trip on it.
 
-⚠️ **Предупреждения — повод подумать, а не чинить механически:**
+⚠️ **Warnings are something to think about, not to fix mechanically:**
 
-- *сирота* — либо файл забыли подключить (тогда добавь на него ссылку), либо он больше не нужен
-  (тогда удали). Само по себе наличие сироты не ошибка;
-- *раздутый SKILL.md* — грузится целиком при каждой активации. Выноси в `references/` то, что
-  нужно не всегда, и оставляй в `SKILL.md` маршрутизацию: когда какой справочник открывать;
-- *путь без такой папки в скилле* — почти всегда пример пути в чужом репозитории, а не маршрут;
-- *указатель на раздел, которого нет* — `references/foo.md` → «Раздел» после переименования
-  заголовка. Файл на месте, поэтому обычная проверка ссылок молчит, а агент открывает справочник
-  и не находит того, за чем пришёл. Чинится в одну сторону: либо вернуть заголовок, либо
-  поправить указатель — **название раздела берётся из файла дословно, а не по памяти**;
-- *`description` длиннее 1024* — Claude Code этот лимит сегодня не навязывает, скилл работает.
-  Но спецификация Agent Skills его задаёт, поэтому при публикации скилла и на
-  `skills-ref validate` описание отлетит. Чинить перед публикацией, а не срочно.
+- *orphan* - either the file was never wired up (then link to it) or it is no longer
+  needed (then delete it). An orphan is not wrong by itself;
+- *oversized SKILL.md* - it is loaded whole on every activation. Move what is not always
+  needed into `references/`, and keep the routing in `SKILL.md`: which reference to open
+  when;
+- *path with no such folder in the skill* - nearly always an example path from somebody
+  else's repository, not a route of your own;
+- *pointer to a missing section* - `references/foo.md` → "Section" after the heading was
+  renamed. The file is still there, so an ordinary link check stays quiet while the agent
+  opens the reference and does not find what it came for. It is fixed in one direction or
+  the other: restore the heading, or correct the pointer - and **the section name is
+  copied from the file verbatim, never from memory**;
+- *`description` over 1024* - Claude Code does not enforce that limit today and the skill
+  works. But the Agent Skills spec sets it, so on publication and on `skills-ref validate`
+  the description is rejected. Fix before publishing, not urgently;
+- *code as prose* - a long executable block sitting in the text. A step that is always
+  performed the same way belongs in `scripts/`: code in prose is retyped by the model
+  every time, cannot be run and cannot be fixed once. Leave the call and how to read the
+  output in the text.
 
-## Границы проверки разделов
+## Limits of the section check
 
-Ловится только явная форма указателя: файл, затем `→`, `->` или слово «раздел», затем
-«название» в кавычках-ёлочках. Свободный пересказ («смотри там про петлю») не ловится
-сознательно — попытка угадать такие места даёт ложные срабатывания на обычных цитатах,
-а линтер, который врёт, перестают читать.
+Only the explicit form is caught: a file, then `→`, `->` or the word *section*, then the
+name in quotes - `"like this"`, `“like this”` or `«like this»`. A loose paraphrase ("see
+the part about the loop in there") is deliberately not caught: guessing at those produces
+false positives on ordinary quotations, and a linter that lies stops being read.
 
-## После починки
+The example markers for the *code as prose* check (`# WRONG`, `# GOOD`, `# BEFORE`, …) are
+English. If your skills are written in another language, add your words to `EXAMPLE_RE` and
+to the section keyword in `SECPTR_RE` - that is the only language-specific spot in the file.
 
-Прогони ещё раз и убедись, что ошибок ноль. Если правил чужой скилл — скажи пользователю, что
-именно изменил: у него могли быть свои причины для странной структуры.
+## After fixing
 
-Подробности, установка хуком и настройка бюджета — в [README.md](README.md).
+Run it again and confirm there are zero errors. If you edited somebody else's skill, tell
+the user exactly what you changed: they may have had their reasons for an odd structure.
+
+Details, hook installation and budget tuning are in [README.md](README.md).
