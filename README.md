@@ -12,7 +12,7 @@ agent involved.
 
 | Repository | What it does |
 |---|---|
-| [skill-lint](https://github.com/letsloose501/skill-lint) | Checks the integrity of skills: broken links into `references/`, links to skills that no longer exist, orphan files, broken frontmatter, Agent Skills spec violations, an oversized `SKILL.md`, and code left in the prose instead of `scripts/`. Wires onto a hook. Python standard library only |
+| [skill-quality-suite](https://github.com/letsloose501/skill-quality-suite) | A quality suite for Agent Skills: eight checks, one command each. Broken links and orphans, spec conformance, whether the description says *when* to fire, portability across ten agent harnesses, secrets and injection in a skill you installed, eval sets, publication readiness, and the repairs that have one correct answer. 70 coded rules; `explain <CODE>` for any of them. Python standard library only |
 
 ## Tools
 
